@@ -1,61 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/database';
+import * as schema from '../lib/schema';
 import { useAuth } from './AuthContext';
 import { useWeb3 } from './Web3Context';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
+import { eq, desc } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
-export interface Product {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  sku: string;
-  batch_number: string;
-  manufacturer_id: string;
-  current_owner_id: string;
-  status: 'created' | 'in_transit' | 'delivered' | 'verified' | 'recalled';
-  origin_location: string;
-  current_location: string;
-  created_at: string;
-  updated_at: string;
-  metadata?: any;
-}
+// Use the types from the schema instead of defining interfaces
+import type { Product as DbProduct, TrackingRecord as DbTrackingRecord, SmartContract as DbSmartContract, QualityRecord as DbQualityRecord } from '../lib/schema';
 
-export interface TrackingRecord {
-  id: string;
-  product_id: string;
-  location: string;
-  timestamp: string;
-  event_type: 'created' | 'transferred' | 'location_update' | 'quality_check' | 'delivered';
-  actor_id: string;
-  notes?: string;
-  sensor_data?: any;
-  blockchain_tx_hash?: string;
-}
-
-export interface SmartContract {
-  id: string;
-  name: string;
-  description: string;
-  contract_address: string;
-  abi: any[];
-  bytecode: string;
-  deployed_by: string;
-  deployed_at: string;
-  status: 'deployed' | 'verified' | 'paused' | 'terminated';
-  network_id: number;
-}
-
-export interface QualityRecord {
-  id: string;
-  product_id: string;
-  inspector_id: string;
-  quality_score: number;
-  test_results: any;
-  compliance_status: 'passed' | 'failed' | 'pending';
-  notes?: string;
-  created_at: string;
-}
+export type Product = DbProduct;
+export type TrackingRecord = DbTrackingRecord;
+export type SmartContract = DbSmartContract;
+export type QualityRecord = DbQualityRecord;
 
 interface SupplyChainContextType {
   // Products
@@ -141,12 +99,7 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   const loadProducts = async () => {
     setLoadingProducts(true);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await db.select().from(schema.products).orderBy(desc(schema.products.created_at));
       setProducts(data || []);
     } catch (error) {
       console.error('Error loading products:', error);
@@ -158,12 +111,7 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadTrackingRecords = async () => {
     try {
-      const { data, error } = await supabase
-        .from('tracking_records')
-        .select('*')
-        .order('timestamp', { ascending: false });
-
-      if (error) throw error;
+      const data = await db.select().from(schema.trackingRecords).orderBy(desc(schema.trackingRecords.timestamp));
       setTrackingRecords(data || []);
     } catch (error) {
       console.error('Error loading tracking records:', error);
@@ -172,12 +120,7 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadContracts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('smart_contracts')
-        .select('*')
-        .order('deployed_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await db.select().from(schema.smartContracts).orderBy(desc(schema.smartContracts.created_at));
       setContracts(data || []);
     } catch (error) {
       console.error('Error loading contracts:', error);
@@ -189,12 +132,7 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadQualityRecords = async () => {
     try {
-      const { data, error } = await supabase
-        .from('quality_records')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await db.select().from(schema.qualityRecords).orderBy(desc(schema.qualityRecords.created_at));
       setQualityRecords(data || []);
     } catch (error) {
       console.error('Error loading quality records:', error);
@@ -206,33 +144,39 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
     try {
       const newProduct = {
-        ...productData,
-        id: `prod_${Date.now()}`,
-        manufacturer_id: user.id,
-        current_owner_id: user.id,
+        name: productData.name || '',
+        description: productData.description,
+        category: productData.category || '',
+        sku: productData.sku || '',
+        batch_number: productData.batch_number || '',
+        manufacturer_id: productData.manufacturer_id || user.id,
+        current_owner_id: productData.current_owner_id || user.id,
         status: 'created' as const,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        origin_location: productData.origin_location || 'Unknown',
+        current_location: productData.current_location || productData.origin_location || 'Unknown',
+        price: productData.price,
+        quantity: productData.quantity || 1,
+        weight: productData.weight,
+        dimensions: productData.dimensions,
+        expiry_date: productData.expiry_date,
+        certifications: productData.certifications,
+        metadata: productData.metadata,
+        blockchain_tx_hash: productData.blockchain_tx_hash,
+        qr_code_data: productData.qr_code_data
       };
 
-      const { data, error } = await supabase
-        .from('products')
-        .insert(newProduct)
-        .select()
-        .single();
-
-      if (error) throw error;
+      const [insertedProduct] = await db.insert(schema.products).values(newProduct).returning();
 
       // Add initial tracking record
       await addTrackingRecord({
-        product_id: data.id,
-        location: productData.origin_location || 'Unknown',
+        product_id: insertedProduct.id,
+        location: newProduct.origin_location,
         event_type: 'created',
         actor_id: user.id,
         notes: 'Product created'
       });
 
-      setProducts(prev => [data, ...prev]);
+      setProducts(prev => [insertedProduct, ...prev]);
       toast.success('Product created successfully');
       return { success: true };
     } catch (error: any) {
@@ -243,19 +187,16 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .update({
+      const [updatedProduct] = await db
+        .update(schema.products)
+        .set({
           ...updates,
-          updated_at: new Date().toISOString()
+          updated_at: new Date()
         })
-        .eq('id', id)
-        .select()
-        .single();
+        .where(eq(schema.products.id, id))
+        .returning();
 
-      if (error) throw error;
-
-      setProducts(prev => prev.map(p => p.id === id ? data : p));
+      setProducts(prev => prev.map(p => p.id === id ? updatedProduct : p));
       toast.success('Product updated successfully');
       return { success: true };
     } catch (error: any) {
@@ -269,17 +210,15 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
     try {
       // Update product ownership
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({
+      await db
+        .update(schema.products)
+        .set({
           current_owner_id: newOwnerId,
           current_location: location,
           status: 'in_transit',
-          updated_at: new Date().toISOString()
+          updated_at: new Date()
         })
-        .eq('id', productId);
-
-      if (updateError) throw updateError;
+        .where(eq(schema.products.id, productId));
 
       // Add tracking record
       await addTrackingRecord({
@@ -301,12 +240,9 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const deleteProduct = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await db
+        .delete(schema.products)
+        .where(eq(schema.products.id, id));
 
       setProducts(prev => prev.filter(p => p.id !== id));
       toast.success('Product deleted successfully');
@@ -319,13 +255,12 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const getProductHistory = async (productId: string): Promise<TrackingRecord[]> => {
     try {
-      const { data, error } = await supabase
-        .from('tracking_records')
-        .select('*')
-        .eq('product_id', productId)
-        .order('timestamp', { ascending: false });
+      const data = await db
+        .select()
+        .from(schema.trackingRecords)
+        .where(eq(schema.trackingRecords.product_id, productId))
+        .orderBy(desc(schema.trackingRecords.created_at));
 
-      if (error) throw error;
       return data || [];
     } catch (error) {
       console.error('Error getting product history:', error);
@@ -338,21 +273,27 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
     try {
       const newRecord = {
-        ...record,
-        id: `track_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        actor_id: record.actor_id || user.id
+        id: uuidv4(),
+        product_id: record.product_id || '',
+        location: record.location || '',
+        latitude: record.latitude || null,
+        longitude: record.longitude || null,
+        event_type: record.event_type || '',
+        actor_id: record.actor_id || user.id,
+        sensor_data: record.sensor_data || null,
+        blockchain_tx_hash: record.blockchain_tx_hash || null,
+        notes: record.notes || '',
+        timestamp: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
       };
 
-      const { data, error } = await supabase
-        .from('tracking_records')
-        .insert(newRecord)
-        .select()
-        .single();
+      const [insertedRecord] = await db
+        .insert(schema.trackingRecords)
+        .values(newRecord)
+        .returning();
 
-      if (error) throw error;
-
-      setTrackingRecords(prev => [data, ...prev]);
+      setTrackingRecords(prev => [insertedRecord, ...prev]);
       return { success: true };
     } catch (error: any) {
       console.error('Error adding tracking record:', error);
@@ -369,24 +310,28 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
       // This would typically deploy to blockchain
       // For now, we'll simulate it
       const newContract = {
-        ...contractData,
-        id: `contract_${Date.now()}`,
-        contract_address: `0x${Math.random().toString(16).substr(2, 40)}`,
-        deployed_by: user.id,
-        deployed_at: new Date().toISOString(),
-        status: 'deployed' as const,
-        network_id: 1 // Mainnet
+        id: uuidv4(),
+        name: contractData.name || '',
+        contract_address: contractData.contract_address || `0x${Math.random().toString(16).substr(2, 40)}`,
+        abi: contractData.abi || {},
+        bytecode: contractData.bytecode || '',
+        network: contractData.network || 'localhost',
+        deployed_by: contractData.deployed_by || user.id,
+        deployment_tx_hash: contractData.deployment_tx_hash || null,
+        deployment_block_number: contractData.deployment_block_number || null,
+        status: 'active' as const,
+        version: contractData.version || '1.0.0',
+        description: contractData.description || '',
+        created_at: new Date(),
+        updated_at: new Date()
       };
 
-      const { data, error } = await supabase
-        .from('smart_contracts')
-        .insert(newContract)
-        .select()
-        .single();
+      const [insertedContract] = await db
+        .insert(schema.smartContracts)
+        .values(newContract)
+        .returning();
 
-      if (error) throw error;
-
-      setContracts(prev => [data, ...prev]);
+      setContracts(prev => [insertedContract, ...prev]);
       toast.success('Contract deployed successfully');
       return { success: true };
     } catch (error: any) {
@@ -403,21 +348,24 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
     try {
       const newRecord = {
-        ...record,
-        id: `quality_${Date.now()}`,
+        id: uuidv4(),
+        product_id: record.product_id || '',
         inspector_id: record.inspector_id || user.id,
-        created_at: new Date().toISOString()
+        quality_score: record.quality_score || '0',
+        test_results: record.test_results || {},
+        compliance_status: record.compliance_status || 'pending',
+        notes: record.notes || '',
+        blockchain_tx_hash: record.blockchain_tx_hash || null,
+        created_at: new Date(),
+        updated_at: new Date()
       };
 
-      const { data, error } = await supabase
-        .from('quality_records')
-        .insert(newRecord)
-        .select()
-        .single();
+      const [insertedRecord] = await db
+        .insert(schema.qualityRecords)
+        .values(newRecord)
+        .returning();
 
-      if (error) throw error;
-
-      setQualityRecords(prev => [data, ...prev]);
+      setQualityRecords(prev => [insertedRecord, ...prev]);
       toast.success('Quality record added successfully');
       return { success: true };
     } catch (error: any) {
@@ -429,18 +377,18 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   const getAnalytics = async () => {
     try {
       // Get various analytics data
-      const [productsCount, trackingCount, contractsCount, qualityCount] = await Promise.all([
-        supabase.from('products').select('*', { count: 'exact', head: true }),
-        supabase.from('tracking_records').select('*', { count: 'exact', head: true }),
-        supabase.from('smart_contracts').select('*', { count: 'exact', head: true }),
-        supabase.from('quality_records').select('*', { count: 'exact', head: true })
+      const [productsData, trackingData, contractsData, qualityData] = await Promise.all([
+        db.select().from(schema.products),
+        db.select().from(schema.trackingRecords),
+        db.select().from(schema.smartContracts),
+        db.select().from(schema.qualityRecords)
       ]);
 
       return {
-        totalProducts: productsCount.count || 0,
-        totalTracking: trackingCount.count || 0,
-        totalContracts: contractsCount.count || 0,
-        totalQuality: qualityCount.count || 0,
+        totalProducts: productsData.length || 0,
+        totalTracking: trackingData.length || 0,
+        totalContracts: contractsData.length || 0,
+        totalQuality: qualityData.length || 0,
         products,
         trackingRecords,
         contracts,

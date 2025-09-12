@@ -23,7 +23,7 @@ export const organizations = pgTable('organizations', {
 // Users table
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
-  authId: uuid('auth_id').notNull().unique(), // Supabase auth.users.id
+  authId: varchar('auth_id', { length: 255 }).notNull().unique(), // Auth0 user ID
   email: varchar('email', { length: 255 }).notNull().unique(),
   name: varchar('name', { length: 255 }).notNull(),
   role: userRoleEnum('role').notNull().default('consumer'),

@@ -43,7 +43,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface Transaction {
   id: string;

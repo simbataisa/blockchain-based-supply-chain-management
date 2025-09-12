@@ -270,7 +270,7 @@ erDiagram
     PRODUCTS ||--o{ PRODUCT_HISTORY : has
     PRODUCTS ||--o{ QUALITY_RECORDS : has
     PRODUCTS ||--o{ TRACKING_RECORDS : has
-    PRODUCTS }|--|| BATCHES : belongs_to
+    PRODUCTS ||--o{ PRODUCT_TRANSFERS : transferred_via
     
     TRANSACTIONS ||--o{ TRANSACTION_APPROVALS : requires
     TRANSACTIONS }|--|| SMART_CONTRACTS : executed_by
@@ -310,28 +310,36 @@ erDiagram
     PRODUCTS {
         uuid id PK
         string name
+        string description
         string category
         string sku
-        uuid batch_id FK
         uuid current_owner_id FK
-        jsonb specifications
         jsonb metadata
         string status
-        string contract_address
-        string ipfs_hash
         timestamp created_at
         timestamp updated_at
     }
     
-    BATCHES {
+    PRODUCT_TRANSFERS {
         uuid id PK
-        string batch_number
-        uuid manufacturer_id FK
-        date production_date
-        date expiry_date
-        jsonb quality_parameters
-        integer quantity
+        uuid product_id FK
+        uuid from_user_id FK
+        uuid to_user_id FK
+        string transfer_type
+        jsonb metadata
         string status
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    AUDIT_LOGS {
+        uuid id PK
+        string action
+        string table_name
+        uuid record_id
+        uuid user_id FK
+        jsonb old_values
+        jsonb new_values
         timestamp created_at
     }
     
@@ -432,22 +440,18 @@ CREATE POLICY "Admins can view all users" ON users
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
+    description TEXT,
     category VARCHAR(100) NOT NULL,
     sku VARCHAR(100) UNIQUE NOT NULL,
-    batch_id UUID REFERENCES batches(id),
     current_owner_id UUID REFERENCES users(id),
-    specifications JSONB DEFAULT '{}',
     metadata JSONB DEFAULT '{}',
-    status VARCHAR(50) DEFAULT 'created',
-    contract_address VARCHAR(42),
-    ipfs_hash VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create indexes
 CREATE INDEX idx_products_sku ON products(sku);
-CREATE INDEX idx_products_batch ON products(batch_id);
 CREATE INDEX idx_products_owner ON products(current_owner_id);
 CREATE INDEX idx_products_status ON products(status);
 CREATE INDEX idx_products_category ON products(category);
@@ -529,6 +533,128 @@ GRANT SELECT ON tracking_records TO anon;
 GRANT ALL PRIVILEGES ON tracking_records TO authenticated;
 ```
 
+**Product Transfers Table**
+
+```sql
+-- Create product_transfers table
+CREATE TABLE product_transfers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    from_user_id UUID REFERENCES users(id),
+    to_user_id UUID REFERENCES users(id),
+    transfer_type VARCHAR(50) NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    status VARCHAR(50) DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes
+CREATE INDEX idx_product_transfers_product ON product_transfers(product_id);
+CREATE INDEX idx_product_transfers_from ON product_transfers(from_user_id);
+CREATE INDEX idx_product_transfers_to ON product_transfers(to_user_id);
+CREATE INDEX idx_product_transfers_status ON product_transfers(status);
+
+-- Row Level Security
+ALTER TABLE product_transfers ENABLE ROW LEVEL SECURITY;
+
+-- Grant permissions
+GRANT SELECT ON product_transfers TO anon;
+GRANT ALL PRIVILEGES ON product_transfers TO authenticated;
+```
+
+**Quality Records Table**
+
+```sql
+-- Create quality_records table
+CREATE TABLE quality_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    inspector_id UUID REFERENCES users(id),
+    test_type VARCHAR(100) NOT NULL,
+    test_results JSONB DEFAULT '{}',
+    certification_hash VARCHAR(100),
+    passed BOOLEAN NOT NULL,
+    tested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes
+CREATE INDEX idx_quality_records_product ON quality_records(product_id);
+CREATE INDEX idx_quality_records_inspector ON quality_records(inspector_id);
+CREATE INDEX idx_quality_records_passed ON quality_records(passed);
+CREATE INDEX idx_quality_records_tested_at ON quality_records(tested_at DESC);
+
+-- Row Level Security
+ALTER TABLE quality_records ENABLE ROW LEVEL SECURITY;
+
+-- Grant permissions
+GRANT SELECT ON quality_records TO anon;
+GRANT ALL PRIVILEGES ON quality_records TO authenticated;
+```
+
+**Transactions Table**
+
+```sql
+-- Create transactions table
+CREATE TABLE transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type VARCHAR(50) NOT NULL,
+    from_user_id UUID REFERENCES users(id),
+    to_user_id UUID REFERENCES users(id),
+    product_id UUID REFERENCES products(id),
+    transaction_data JSONB DEFAULT '{}',
+    blockchain_hash VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'pending',
+    initiated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Create indexes
+CREATE INDEX idx_transactions_type ON transactions(type);
+CREATE INDEX idx_transactions_from ON transactions(from_user_id);
+CREATE INDEX idx_transactions_to ON transactions(to_user_id);
+CREATE INDEX idx_transactions_product ON transactions(product_id);
+CREATE INDEX idx_transactions_status ON transactions(status);
+CREATE INDEX idx_transactions_initiated_at ON transactions(initiated_at DESC);
+
+-- Row Level Security
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+
+-- Grant permissions
+GRANT SELECT ON transactions TO anon;
+GRANT ALL PRIVILEGES ON transactions TO authenticated;
+```
+
+**Audit Logs Table**
+
+```sql
+-- Create audit_logs table
+CREATE TABLE audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action VARCHAR(50) NOT NULL,
+    table_name VARCHAR(50) NOT NULL,
+    record_id UUID,
+    user_id UUID REFERENCES users(id),
+    old_values JSONB,
+    new_values JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create indexes
+CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX idx_audit_logs_table ON audit_logs(table_name);
+CREATE INDEX idx_audit_logs_record ON audit_logs(record_id);
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
+
+-- Row Level Security
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- Grant permissions
+GRANT SELECT ON audit_logs TO anon;
+GRANT ALL PRIVILEGES ON audit_logs TO authenticated;
+```
+
 **Initial Data**
 
 ```sql
@@ -543,10 +669,15 @@ INSERT INTO roles (name, description, permissions) VALUES
 ('consumer', 'End Consumer', '["verify_product", "view_history"]');
 
 -- Insert sample organizations
-INSERT INTO organizations (name, type, registration_number, is_verified) VALUES
-('Global Supply Corp', 'supplier', 'SUP001', true),
-('TechManufacturing Ltd', 'manufacturer', 'MFG001', true),
-('Logistics Express', 'distributor', 'DIS001', true),
-('Retail Chain Inc', 'retailer', 'RET001', true);
+INSERT INTO organizations (name, type, registration_number, address, is_verified) VALUES
+('Global Supply Corp', 'supplier', 'SUP001', '{"street": "123 Supply St", "city": "New York", "country": "USA"}', true),
+('TechManufacturing Ltd', 'manufacturer', 'MFG001', '{"street": "456 Factory Ave", "city": "Detroit", "country": "USA"}', true),
+('Logistics Express', 'distributor', 'DIS001', '{"street": "789 Warehouse Blvd", "city": "Chicago", "country": "USA"}', true),
+('Retail Chain Inc', 'retailer', 'RET001', '{"street": "321 Commerce Dr", "city": "Los Angeles", "country": "USA"}', true);
+
+-- Note: Complete database schema with all 9 tables has been implemented
+-- Migration 0001_colossal_proteus.sql successfully applied
+-- All tables: users, organizations, products, product_transfers, tracking_records, 
+-- smart_contracts, quality_records, transactions, audit_logs
 ```
 

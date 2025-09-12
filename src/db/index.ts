@@ -1,51 +1,39 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import * as schema from './schema/users';
+import * as usersSchema from './schema/users';
+import * as productsSchema from './schema/products';
 
-// Get database URL from environment
-const getDatabaseUrl = () => {
-  // First try the explicit DATABASE_URL
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL !== 'postgresql://username:password@localhost:5432/supply_chain_local') {
+const schema = { ...usersSchema, ...productsSchema };
+
+// Get database URL from environment variables
+function getDatabaseUrl(): string {
+  // Check for explicit DATABASE_URL first
+  if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
   }
   
-  // For Supabase, construct the connection URL using service role key
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Default to local PostgreSQL for development
+  const host = process.env.DB_HOST || 'localhost';
+  const port = process.env.DB_PORT || '5432';
+  const database = process.env.DB_NAME || 'supply_chain';
+  const username = process.env.DB_USER || 'postgres';
+  const password = process.env.DB_PASSWORD || 'postgres123';
   
-  if (supabaseUrl && serviceRoleKey) {
-    // Extract project reference from Supabase URL
-    const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1];
-    if (projectRef) {
-      // Use the service role key as password for direct PostgreSQL connection
-      return `postgresql://postgres:[YOUR_PASSWORD]@db.${projectRef}.supabase.co:5432/postgres`;
-    }
-  }
-  
-  // Fallback to local development database
-  return 'postgresql://postgres:postgres@localhost:5432/supply_chain_local';
-};
-
-let client: postgres.Sql;
-let db: ReturnType<typeof drizzle>;
-
-try {
-  const connectionString = getDatabaseUrl();
-  client = postgres(connectionString, {
-    prepare: false,
-    max: 10,
-  });
-  db = drizzle(client, { schema });
-} catch (error) {
-  console.warn('Database connection failed, using fallback:', error);
-  // Create a mock client for development
-  client = postgres('postgresql://localhost:5432/fallback', {
-    prepare: false,
-    max: 1,
-  });
-  db = drizzle(client, { schema });
+  return `postgresql://${username}:${password}@${host}:${port}/${database}`;
 }
+
+// Initialize PostgreSQL connection
+const connectionString = getDatabaseUrl();
+const client = postgres(connectionString, {
+  max: 10,
+  idle_timeout: 20,
+  connect_timeout: 10,
+});
+
+const db = drizzle(client, { schema });
+console.log('PostgreSQL database initialized');
 
 // Export the database instance and schema
 export { db };
 export * from './schema/users';
+export * from './schema/products';

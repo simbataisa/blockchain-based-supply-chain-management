@@ -34,7 +34,7 @@ import {
   Target
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'recharts';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface InventoryItem {
   id: string;

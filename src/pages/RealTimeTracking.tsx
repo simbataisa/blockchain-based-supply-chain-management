@@ -24,7 +24,7 @@ import {
   Eye
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface TrackingData {
   id: string;

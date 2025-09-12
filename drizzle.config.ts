@@ -5,7 +5,7 @@ export default defineConfig({
   out: './src/db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || process.env.VITE_SUPABASE_URL?.replace('/rest/v1', '') + '/db',
+    url: process.env.DATABASE_URL || 'postgresql://postgres:postgres123@localhost:5432/supply_chain',
   },
   verbose: true,
   strict: true,
