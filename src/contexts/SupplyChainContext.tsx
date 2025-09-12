@@ -1,11 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { db } from '../lib/database';
-import * as schema from '../lib/schema';
 import { useAuth } from './AuthContext';
 import { useWeb3 } from './Web3Context';
 import toast from 'react-hot-toast';
-import { eq, desc } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
 
 // Use the types from the schema instead of defining interfaces
 import type { Product as DbProduct, TrackingRecord as DbTrackingRecord, SmartContract as DbSmartContract, QualityRecord as DbQualityRecord } from '../lib/schema';
@@ -99,8 +95,13 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   const loadProducts = async () => {
     setLoadingProducts(true);
     try {
-      const data = await db.select().from(schema.products).orderBy(desc(schema.products.created_at));
-      setProducts(data || []);
+      const response = await fetch('/api/database/products');
+      const result = await response.json();
+      if (result.success) {
+        setProducts(result.data || []);
+      } else {
+        throw new Error(result.error || 'Failed to load products');
+      }
     } catch (error) {
       console.error('Error loading products:', error);
       toast.error('Failed to load products');
@@ -111,8 +112,13 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadTrackingRecords = async () => {
     try {
-      const data = await db.select().from(schema.trackingRecords).orderBy(desc(schema.trackingRecords.timestamp));
-      setTrackingRecords(data || []);
+      const response = await fetch('/api/database/tracking-records');
+      const result = await response.json();
+      if (result.success) {
+        setTrackingRecords(result.data || []);
+      } else {
+        throw new Error(result.error || 'Failed to load tracking records');
+      }
     } catch (error) {
       console.error('Error loading tracking records:', error);
     }
@@ -120,8 +126,13 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadContracts = async () => {
     try {
-      const data = await db.select().from(schema.smartContracts).orderBy(desc(schema.smartContracts.created_at));
-      setContracts(data || []);
+      const response = await fetch('/api/database/contracts');
+      const result = await response.json();
+      if (result.success) {
+        setContracts(result.data || []);
+      } else {
+        throw new Error(result.error || 'Failed to load contracts');
+      }
     } catch (error) {
       console.error('Error loading contracts:', error);
     }
@@ -132,8 +143,13 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const loadQualityRecords = async () => {
     try {
-      const data = await db.select().from(schema.qualityRecords).orderBy(desc(schema.qualityRecords.created_at));
-      setQualityRecords(data || []);
+      const response = await fetch('/api/database/quality-records');
+      const result = await response.json();
+      if (result.success) {
+        setQualityRecords(result.data || []);
+      } else {
+        throw new Error(result.error || 'Failed to load quality records');
+      }
     } catch (error) {
       console.error('Error loading quality records:', error);
     }
@@ -143,40 +159,24 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
     if (!user) return { success: false, error: 'User not authenticated' };
 
     try {
-      const newProduct = {
-        name: productData.name || '',
-        description: productData.description,
-        category: productData.category || '',
-        sku: productData.sku || '',
-        batch_number: productData.batch_number || '',
-        manufacturer_id: productData.manufacturer_id || user.id,
-        current_owner_id: productData.current_owner_id || user.id,
-        status: 'created' as const,
-        origin_location: productData.origin_location || 'Unknown',
-        current_location: productData.current_location || productData.origin_location || 'Unknown',
-        price: productData.price,
-        quantity: productData.quantity || 1,
-        weight: productData.weight,
-        dimensions: productData.dimensions,
-        expiry_date: productData.expiry_date,
-        certifications: productData.certifications,
-        metadata: productData.metadata,
-        blockchain_tx_hash: productData.blockchain_tx_hash,
-        qr_code_data: productData.qr_code_data
-      };
-
-      const [insertedProduct] = await db.insert(schema.products).values(newProduct).returning();
-
-      // Add initial tracking record
-      await addTrackingRecord({
-        product_id: insertedProduct.id,
-        location: newProduct.origin_location,
-        event_type: 'created',
-        actor_id: user.id,
-        notes: 'Product created'
+      const response = await fetch('/api/database/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+           ...productData,
+           current_owner_id: productData.current_owner_id || user.id
+         })
       });
 
-      setProducts(prev => [insertedProduct, ...prev]);
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create product');
+      }
+
+      setProducts(prev => [result.data, ...prev]);
       toast.success('Product created successfully');
       return { success: true };
     } catch (error: any) {
@@ -186,17 +186,24 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
-    try {
-      const [updatedProduct] = await db
-        .update(schema.products)
-        .set({
-          ...updates,
-          updated_at: new Date()
-        })
-        .where(eq(schema.products.id, id))
-        .returning();
+    if (!user) return { success: false, error: 'User not authenticated' };
 
-      setProducts(prev => prev.map(p => p.id === id ? updatedProduct : p));
+    try {
+      const response = await fetch(`/api/database/products/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates)
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to update product');
+      }
+
+      setProducts(prev => prev.map(p => p.id === id ? result.data : p));
       toast.success('Product updated successfully');
       return { success: true };
     } catch (error: any) {
@@ -209,25 +216,23 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
     if (!user) return { success: false, error: 'User not authenticated' };
 
     try {
-      // Update product ownership
-      await db
-        .update(schema.products)
-        .set({
-          current_owner_id: newOwnerId,
-          current_location: location,
-          status: 'in_transit',
-          updated_at: new Date()
+      const response = await fetch(`/api/database/products/${productId}/transfer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          newOwnerId,
+          location,
+          actorId: user.id
         })
-        .where(eq(schema.products.id, productId));
-
-      // Add tracking record
-      await addTrackingRecord({
-        product_id: productId,
-        location,
-        event_type: 'transferred',
-        actor_id: user.id,
-        notes: `Transferred to new owner: ${newOwnerId}`
       });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to transfer product');
+      }
 
       await loadProducts();
       toast.success('Product transferred successfully');
@@ -239,10 +244,18 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   };
 
   const deleteProduct = async (id: string) => {
+    if (!user) return { success: false, error: 'User not authenticated' };
+
     try {
-      await db
-        .delete(schema.products)
-        .where(eq(schema.products.id, id));
+      const response = await fetch(`/api/database/products/${id}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete product');
+      }
 
       setProducts(prev => prev.filter(p => p.id !== id));
       toast.success('Product deleted successfully');
@@ -255,13 +268,14 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const getProductHistory = async (productId: string): Promise<TrackingRecord[]> => {
     try {
-      const data = await db
-        .select()
-        .from(schema.trackingRecords)
-        .where(eq(schema.trackingRecords.product_id, productId))
-        .orderBy(desc(schema.trackingRecords.created_at));
-
-      return data || [];
+      const response = await fetch(`/api/database/products/${productId}/history`);
+      const result = await response.json();
+      
+      if (result.success) {
+        return result.data;
+      } else {
+        throw new Error(result.error || 'Failed to get product history');
+      }
     } catch (error) {
       console.error('Error getting product history:', error);
       return [];
@@ -272,28 +286,24 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
     if (!user) return { success: false, error: 'User not authenticated' };
 
     try {
-      const newRecord = {
-        id: uuidv4(),
-        product_id: record.product_id || '',
-        location: record.location || '',
-        latitude: record.latitude || null,
-        longitude: record.longitude || null,
-        event_type: record.event_type || '',
-        actor_id: record.actor_id || user.id,
-        sensor_data: record.sensor_data || null,
-        blockchain_tx_hash: record.blockchain_tx_hash || null,
-        notes: record.notes || '',
-        timestamp: new Date(),
-        created_at: new Date(),
-        updated_at: new Date()
-      };
+      const response = await fetch('/api/database/tracking-records', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...record,
+          actor_id: record.actor_id || user.id
+        })
+      });
 
-      const [insertedRecord] = await db
-        .insert(schema.trackingRecords)
-        .values(newRecord)
-        .returning();
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to add tracking record');
+      }
 
-      setTrackingRecords(prev => [insertedRecord, ...prev]);
+      setTrackingRecords(prev => [result.data, ...prev]);
       return { success: true };
     } catch (error: any) {
       console.error('Error adding tracking record:', error);
@@ -302,37 +312,28 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
   };
 
   const deployContract = async (contractData: Partial<SmartContract>) => {
-    if (!user || !web3 || !account) {
-      return { success: false, error: 'Web3 not connected' };
-    }
+    if (!user) return { success: false, error: 'User not authenticated' };
 
     try {
-      // This would typically deploy to blockchain
-      // For now, we'll simulate it
-      const newContract = {
-        id: uuidv4(),
-        name: contractData.name || '',
-        contract_address: contractData.contract_address || `0x${Math.random().toString(16).substr(2, 40)}`,
-        abi: contractData.abi || {},
-        bytecode: contractData.bytecode || '',
-        network: contractData.network || 'localhost',
-        deployed_by: contractData.deployed_by || user.id,
-        deployment_tx_hash: contractData.deployment_tx_hash || null,
-        deployment_block_number: contractData.deployment_block_number || null,
-        status: 'active' as const,
-        version: contractData.version || '1.0.0',
-        description: contractData.description || '',
-        created_at: new Date(),
-        updated_at: new Date()
-      };
+      const response = await fetch('/api/database/contracts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...contractData,
+          deployed_by: contractData.deployed_by || user.id
+        })
+      });
 
-      const [insertedContract] = await db
-        .insert(schema.smartContracts)
-        .values(newContract)
-        .returning();
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to deploy contract');
+      }
 
-      setContracts(prev => [insertedContract, ...prev]);
-      toast.success('Contract deployed successfully');
+      setContracts(prev => [result.data, ...prev]);
+      toast.success('Smart contract deployed successfully');
       return { success: true };
     } catch (error: any) {
       console.error('Error deploying contract:', error);
@@ -347,25 +348,24 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
     if (!user) return { success: false, error: 'User not authenticated' };
 
     try {
-      const newRecord = {
-        id: uuidv4(),
-        product_id: record.product_id || '',
-        inspector_id: record.inspector_id || user.id,
-        quality_score: record.quality_score || '0',
-        test_results: record.test_results || {},
-        compliance_status: record.compliance_status || 'pending',
-        notes: record.notes || '',
-        blockchain_tx_hash: record.blockchain_tx_hash || null,
-        created_at: new Date(),
-        updated_at: new Date()
-      };
+      const response = await fetch('/api/database/quality-records', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...record,
+          inspector_id: record.inspector_id || user.id
+        })
+      });
 
-      const [insertedRecord] = await db
-        .insert(schema.qualityRecords)
-        .values(newRecord)
-        .returning();
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to add quality record');
+      }
 
-      setQualityRecords(prev => [insertedRecord, ...prev]);
+      setQualityRecords(prev => [result.data, ...prev]);
       toast.success('Quality record added successfully');
       return { success: true };
     } catch (error: any) {
@@ -376,24 +376,14 @@ export const SupplyChainProvider: React.FC<SupplyChainProviderProps> = ({ childr
 
   const getAnalytics = async () => {
     try {
-      // Get various analytics data
-      const [productsData, trackingData, contractsData, qualityData] = await Promise.all([
-        db.select().from(schema.products),
-        db.select().from(schema.trackingRecords),
-        db.select().from(schema.smartContracts),
-        db.select().from(schema.qualityRecords)
-      ]);
-
-      return {
-        totalProducts: productsData.length || 0,
-        totalTracking: trackingData.length || 0,
-        totalContracts: contractsData.length || 0,
-        totalQuality: qualityData.length || 0,
-        products,
-        trackingRecords,
-        contracts,
-        qualityRecords
-      };
+      const response = await fetch('/api/database/analytics');
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch analytics');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error getting analytics:', error);
       return null;

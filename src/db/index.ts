@@ -2,8 +2,9 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as usersSchema from './schema/users';
 import * as productsSchema from './schema/products';
+import * as contractsSchema from './schema/contracts';
 
-const schema = { ...usersSchema, ...productsSchema };
+const schema = { ...usersSchema, ...productsSchema, ...contractsSchema };
 
 // Get database URL from environment variables
 function getDatabaseUrl(): string {
@@ -37,3 +38,4 @@ console.log('PostgreSQL database initialized');
 export { db };
 export * from './schema/users';
 export * from './schema/products';
+export * from './schema/contracts';

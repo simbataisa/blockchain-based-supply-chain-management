@@ -1,6 +1,42 @@
 # Blockchain Supply Chain Management System - Technical Architecture Document
 
-## 1. Architecture Design
+## 1. System Overview
+
+The Blockchain Supply Chain Management System is a comprehensive platform that leverages blockchain technology to provide transparency, traceability, and trust in supply chain operations. The system integrates IoT sensors, smart contracts, and real-time tracking to create an immutable record of product journey from manufacture to end consumer.
+
+### Key Features:
+- **Product Lifecycle Tracking**: Complete visibility from raw materials to finished products
+- **Smart Contract Automation**: Automated compliance checks and payments
+- **IoT Integration**: Real-time sensor data collection and monitoring
+- **Multi-stakeholder Platform**: Support for manufacturers, distributors, retailers, and consumers
+- **Blockchain Immutability**: Tamper-proof records and audit trails
+- **Quality Assurance**: Automated quality checks and certifications
+
+### Architecture Updates (Latest):
+- **API-First Architecture**: Frontend completely decoupled from database operations
+- **RESTful API Layer**: All data operations go through standardized API endpoints
+- **Enhanced Security**: No direct database access from frontend components
+- **Improved Scalability**: Clean separation of concerns between frontend and backend
+
+## 2. Technology Stack
+
+* **Frontend**: React@18 + TypeScript + Vite + TailwindCSS@3 + Web3.js + Ethers.js
+
+* **Backend**: Node.js@20 + Express@4 + TypeScript + Socket.io + Bull Queue
+
+* **Blockchain**: Ethereum/Polygon + Solidity@0.8.19 + Hardhat + OpenZeppelin
+
+* **Database**: Supabase (PostgreSQL) + Redis@7 + InfluxDB (time series)
+
+* **Storage**: IPFS + Supabase Storage
+
+* **Authentication**: Supabase Auth + MetaMask + WalletConnect
+
+* **Real-time**: WebSocket + Server-Sent Events + Redis Pub/Sub
+
+* **Monitoring**: Grafana + Prometheus + Sentry
+
+## 3. Architecture Design
 
 ```mermaid
 graph TD
@@ -59,25 +95,7 @@ graph TD
     end
 ```
 
-## 2. Technology Description
-
-* **Frontend**: React\@18 + TypeScript + Vite + TailwindCSS\@3 + Web3.js + Ethers.js
-
-* **Backend**: Node.js\@20 + Express\@4 + TypeScript + Socket.io + Bull Queue
-
-* **Blockchain**: Ethereum/Polygon + Solidity\@0.8.19 + Hardhat + OpenZeppelin
-
-* **Database**: Supabase (PostgreSQL) + Redis\@7 + InfluxDB (time series)
-
-* **Storage**: IPFS + Supabase Storage
-
-* **Authentication**: Supabase Auth + MetaMask + WalletConnect
-
-* **Real-time**: WebSocket + Server-Sent Events + Redis Pub/Sub
-
-* **Monitoring**: Grafana + Prometheus + Sentry
-
-## 3. Route Definitions
+## 4. Route Definitions
 
 | Route         | Purpose                                                          |
 | ------------- | ---------------------------------------------------------------- |
@@ -97,9 +115,9 @@ graph TD
 | /settings     | System configuration and security settings                       |
 | /api-docs     | API documentation and testing interface                          |
 
-## 4. API Definitions
+## 5. API Definitions
 
-### 4.1 Core API
+### 5.1 Core API
 
 **Authentication APIs**
 
@@ -128,7 +146,7 @@ Response:
 **Product Management APIs**
 
 ```
-POST /api/products
+POST /api/database/products
 ```
 
 Request:
@@ -136,68 +154,172 @@ Request:
 | Param Name          | Param Type | isRequired | Description                     |
 | ------------------- | ---------- | ---------- | ------------------------------- |
 | name                | string     | true       | Product name                    |
+| description         | string     | false      | Product description             |
 | category            | string     | true       | Product category                |
-| batchId             | string     | true       | Manufacturing batch identifier  |
-| specifications      | object     | true       | Technical specifications        |
-| qualityCertificates | array      | false      | Quality certification documents |
+| sku                 | string     | true       | Stock keeping unit              |
+| batch_number        | string     | false      | Manufacturing batch identifier  |
+| manufacturer_id     | string     | false      | Manufacturer user ID            |
+| current_owner_id    | string     | true       | Current owner user ID           |
+| origin_location     | string     | false      | Origin location                 |
+| current_location    | string     | false      | Current location                |
+| price               | number     | false      | Product price                   |
+| quantity            | number     | false      | Product quantity                |
+| weight              | number     | false      | Product weight                  |
+| dimensions          | object     | false      | Product dimensions              |
+| expiry_date         | string     | false      | Product expiry date             |
+| certifications      | array      | false      | Quality certification documents |
 | metadata            | object     | false      | Additional product metadata     |
 
 Response:
 
-| Param Name      | Param Type | Description                    |
-| --------------- | ---------- | ------------------------------ |
-| success         | boolean    | Operation status               |
-| productId       | string     | Generated product identifier   |
-| transactionHash | string     | Blockchain transaction hash    |
-| ipfsHash        | string     | IPFS hash for metadata storage |
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | object     | Created product data           |
+
+```
+GET /api/database/products
+```
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | array      | List of products               |
+| count      | number     | Total number of products       |
+
+```
+GET /api/database/products/:id
+```
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | object     | Product details                |
+
+```
+PUT /api/database/products/:id
+```
+
+Request: Same as POST request parameters
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | object     | Updated product data           |
+
+```
+DELETE /api/database/products/:id
+```
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| message    | string     | Deletion confirmation message  |
 
 **Smart Contract APIs**
 
 ```
-POST /api/contracts/deploy
+POST /api/database/smart-contracts
 ```
 
 Request:
 
-| Param Name   | Param Type | isRequired | Description                        |
-| ------------ | ---------- | ---------- | ---------------------------------- |
-| contractType | string     | true       | Type of contract to deploy         |
-| parameters   | object     | true       | Contract initialization parameters |
-| gasLimit     | number     | false      | Gas limit for deployment           |
+| Param Name       | Param Type | isRequired | Description                     |
+| ---------------- | ---------- | ---------- | ------------------------------- |
+| name             | string     | true       | Smart contract name             |
+| description      | string     | false      | Contract description            |
+| contract_address | string     | true       | Deployed contract address       |
+| abi              | array      | true       | Contract ABI                    |
+| bytecode         | string     | true       | Contract bytecode               |
+| deployed_by      | string     | true       | Deployer user ID                |
+| network_id       | number     | true       | Blockchain network ID           |
 
 Response:
 
-| Param Name      | Param Type | Description                 |
-| --------------- | ---------- | --------------------------- |
-| success         | boolean    | Deployment status           |
-| contractAddress | string     | Deployed contract address   |
-| transactionHash | string     | Deployment transaction hash |
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | object     | Created smart contract record  |
+
+```
+GET /api/database/smart-contracts
+```
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | array      | List of smart contracts        |
+
+```
+GET /api/database/smart-contracts/:id
+```
+
+Response:
+
+| Param Name | Param Type | Description                    |
+| ---------- | ---------- | ------------------------------ |
+| success    | boolean    | Operation status               |
+| data       | object     | Smart contract details         |
 
 **Real-time Tracking APIs**
 
 ```
-POST /api/tracking/update
+POST /api/database/tracking-records
 ```
 
 Request:
 
 | Param Name | Param Type | isRequired | Description                        |
 | ---------- | ---------- | ---------- | ---------------------------------- |
-| productId  | string     | true       | Product identifier                 |
-| location   | object     | true       | GPS coordinates and address        |
-| sensorData | object     | false      | IoT sensor readings                |
-| timestamp  | string     | true       | Update timestamp                   |
-| signature  | string     | true       | Digital signature for verification |
+| product_id | string     | true       | Product identifier                 |
+| location   | string     | true       | Location description               |
+| event_type | string     | true       | Event type (created/transferred/etc) |
+| actor_id   | string     | true       | User performing the action         |
+| sensor_data| object     | false      | IoT sensor readings                |
+| notes      | string     | false      | Additional notes                   |
 
 Response:
 
 | Param Name   | Param Type | Description                 |
 | ------------ | ---------- | --------------------------- |
 | success      | boolean    | Update status               |
-| trackingId   | string     | Tracking record identifier  |
-| blockchainTx | string     | Blockchain transaction hash |
+| data         | object     | Created tracking record     |
 
-## 5. Server Architecture Diagram
+**Quality Records APIs**
+
+```
+POST /api/database/quality-records
+```
+
+Request:
+
+| Param Name        | Param Type | isRequired | Description                    |
+| ----------------- | ---------- | ---------- | ------------------------------ |
+| product_id        | string     | true       | Product identifier             |
+| inspector_id      | string     | true       | Inspector user ID              |
+| quality_score     | number     | true       | Quality assessment score       |
+| test_results      | object     | false      | Detailed test results          |
+| compliance_status | string     | true       | Compliance status              |
+| notes            | string     | false      | Additional notes               |
+
+Response:
+
+| Param Name | Param Type | Description               |
+| ---------- | ---------- | ------------------------- |
+| success    | boolean    | Operation status          |
+| data       | object     | Created quality record    |
+
+## 6. Server Architecture Diagram
 
 ```mermaid
 graph TD
@@ -257,9 +379,9 @@ graph TD
     end
 ```
 
-## 6. Data Model
+## 7. Data Model
 
-### 6.1 Data Model Definition
+### 7.1 Data Model Definition
 
 ```mermaid
 erDiagram
@@ -390,7 +512,7 @@ erDiagram
     }
 ```
 
-### 6.2 Data Definition Language
+### 7.2 Data Definition Language
 
 **Users Table**
 
