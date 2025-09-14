@@ -399,9 +399,14 @@ erDiagram
     
     SMART_CONTRACTS ||--o{ CONTRACT_EVENTS : emits
     
-    ORGANIZATIONS ||--o{ ROLES : defines
-    ROLES ||--o{ PERMISSIONS : has
-    USERS }|--|| ROLES : assigned
+    ORGANIZATIONS ||--o{ USERS : employs
+    USERS ||--o{ USER_ROLES : has
+    ROLES ||--o{ USER_ROLES : assigned_to
+    ROLES ||--o{ ROLE_PERMISSIONS : has
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : granted_to
+    USERS ||--o{ USER_PERMISSIONS : has_direct
+    PERMISSIONS ||--o{ USER_PERMISSIONS : granted_directly
+    PERMISSIONS ||--o{ PERMISSION_AUDIT_LOG : logs
     
     USERS {
         uuid id PK
@@ -509,6 +514,70 @@ erDiagram
         string certification_hash
         boolean passed
         timestamp tested_at
+    }
+    
+    ROLES {
+        uuid id PK
+        string name
+        string display_name
+        string description
+        boolean is_system_role
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    PERMISSIONS {
+        uuid id PK
+        string name
+        string display_name
+        string description
+        permission_type action
+        resource_type resource
+        boolean is_system_permission
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    USER_ROLES {
+        uuid id PK
+        uuid user_id FK
+        uuid role_id FK
+        uuid assigned_by FK
+        timestamp assigned_at
+        timestamp expires_at
+        boolean is_active
+    }
+    
+    ROLE_PERMISSIONS {
+        uuid id PK
+        uuid role_id FK
+        uuid permission_id FK
+        uuid granted_by FK
+        timestamp granted_at
+        boolean is_active
+    }
+    
+    USER_PERMISSIONS {
+        uuid id PK
+        uuid user_id FK
+        uuid permission_id FK
+        uuid granted_by FK
+        timestamp granted_at
+        timestamp expires_at
+        boolean is_active
+    }
+    
+    PERMISSION_AUDIT_LOG {
+        uuid id PK
+        uuid user_id FK
+        uuid permission_id FK
+        permission_type action
+        resource_type resource
+        string resource_id
+        boolean granted
+        string reason
+        jsonb context
+        timestamp checked_at
     }
 ```
 
@@ -797,9 +866,26 @@ INSERT INTO organizations (name, type, registration_number, address, is_verified
 ('Logistics Express', 'distributor', 'DIS001', '{"street": "789 Warehouse Blvd", "city": "Chicago", "country": "USA"}', true),
 ('Retail Chain Inc', 'retailer', 'RET001', '{"street": "321 Commerce Dr", "city": "Los Angeles", "country": "USA"}', true);
 
--- Note: Complete database schema with all 9 tables has been implemented
--- Migration 0001_colossal_proteus.sql successfully applied
--- All tables: users, organizations, products, product_transfers, tracking_records, 
--- smart_contracts, quality_records, transactions, audit_logs
+-- Note: Complete database schema with all 15 tables has been implemented
+-- All 3 migrations successfully applied:
+-- 0000_perpetual_wolfpack.sql - Base schema with core tables
+-- 0001_colossal_proteus.sql - Supply chain tables
+-- 0002_public_fat_cobra.sql - RBAC system tables
+
+-- Core Tables: users, organizations, products, product_transfers
+-- Supply Chain Tables: tracking_records, smart_contracts, quality_records, transactions, audit_logs
+-- RBAC Tables: roles, permissions, user_roles, role_permissions, user_permissions, permission_audit_log
+
+-- Database Enums (6 total):
+-- product_category, product_status, user_role, user_status (core enums)
+-- permission_type, resource_type (RBAC enums)
+
+-- RBAC System Features:
+-- - 7 predefined roles with hierarchical permissions
+-- - 34 granular permissions covering all resources and actions
+-- - Role-permission mapping with inheritance support
+-- - Direct user permissions for exceptions
+-- - Permission audit logging for compliance tracking
+-- - Middleware integration for API endpoint protection
 ```
 

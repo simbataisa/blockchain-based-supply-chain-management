@@ -6,3 +6,4 @@ export * from './contracts';
 export * from './quality';
 export * from './transactions';
 export * from './audit';
+export * from './rbac';

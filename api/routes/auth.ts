@@ -5,6 +5,9 @@
 import { Router, type Request, type Response } from "express";
 import jwt from "jsonwebtoken";
 import { ManagementClient } from "auth0";
+import { authenticateToken, requireRole, requirePermission } from '../middleware/rbac';
+import { requireABACPermission } from '../middleware/abac';
+import { assignRoleToUser, hasPermission, getUserPermissionInfo } from '../utils/permissions';
 
 // Feature flag to control Auth0 Management Client usage
 const USE_AUTH0_MANAGEMENT = process.env.USE_AUTH0_MANAGEMENT === "true";
@@ -89,6 +92,11 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
           },
         });
 
+        // Assign default role to new user
+        if (user.user_id) {
+          await assignRoleToUser(user.user_id, role);
+        }
+
         res.status(201).json({
           success: true,
           message: "User registered successfully via Auth0",
@@ -126,6 +134,9 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
         },
       };
 
+      // Assign default role to new user in demo mode
+      await assignRoleToUser(simulatedUser.user_id, role);
+
       res.status(201).json({
         success: true,
         message: "User registered successfully (demo mode)",
@@ -154,7 +165,7 @@ router.post("/register", async (req: Request, res: Response): Promise<void> => {
  */
 router.get(
   "/profile",
-  verifyToken,
+  authenticateToken,
   async (req: any, res: Response): Promise<void> => {
     try {
       if (USE_AUTH0_MANAGEMENT && management) {
@@ -220,7 +231,7 @@ router.get(
  */
 router.post(
   "/validate",
-  verifyToken,
+  authenticateToken,
   async (req: any, res: Response): Promise<void> => {
     res.json({
       success: true,
@@ -241,5 +252,173 @@ router.post("/logout", async (req: Request, res: Response): Promise<void> => {
     message: "Logout successful - handled by Auth0 on frontend",
   });
 });
+
+/**
+ * Get User Permissions
+ * GET /api/auth/permissions
+ * Returns user's roles and permissions
+ */
+router.get(
+  "/permissions",
+  authenticateToken,
+  async (req: any, res: Response): Promise<void> => {
+    try {
+      const userId = req.user.id || req.user.sub;
+      const permissionInfo = await getUserPermissionInfo(userId);
+      
+      if (!permissionInfo) {
+        res.status(404).json({
+          success: false,
+          error: "User permission information not found"
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        permissions: permissionInfo
+      });
+    } catch (error) {
+      console.error('Error fetching user permissions:', error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error"
+      });
+    }
+  }
+);
+
+/**
+ * Check Specific Permission
+ * POST /api/auth/check-permission
+ * Check if user has a specific permission
+ */
+router.post(
+  "/check-permission",
+  authenticateToken,
+  async (req: any, res: Response): Promise<void> => {
+    try {
+      const { permission, resourceId } = req.body;
+      const userId = req.user.id || req.user.sub;
+      
+      if (!permission) {
+        res.status(400).json({
+          success: false,
+          error: "Permission name is required"
+        });
+        return;
+      }
+      
+      const result = await hasPermission(userId, permission, resourceId);
+      
+      res.json({
+        success: true,
+        result
+      });
+    } catch (error) {
+      console.error('Error checking permission:', error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error"
+      });
+    }
+  }
+);
+
+/**
+ * Admin: Assign Role to User
+ * POST /api/auth/admin/assign-role
+ * Requires admin role
+ */
+router.post(
+  "/admin/assign-role",
+  authenticateToken,
+  requireRole(['admin']),
+  async (req: any, res: Response): Promise<void> => {
+    try {
+      const { userId, roleName } = req.body;
+      
+      if (!userId || !roleName) {
+        res.status(400).json({
+          success: false,
+          error: "User ID and role name are required"
+        });
+        return;
+      }
+      
+      const success = await assignRoleToUser(userId, roleName);
+      
+      if (success) {
+        res.json({
+          success: true,
+          message: `Role '${roleName}' assigned to user successfully`
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: "Failed to assign role to user"
+        });
+      }
+    } catch (error) {
+      console.error('Error assigning role:', error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error"
+      });
+    }
+  }
+);
+
+/**
+ * Protected Route Example: Admin Dashboard
+ * GET /api/auth/admin/dashboard
+ * Requires admin role and read:admin_dashboard permission
+ */
+router.get(
+  "/admin/dashboard",
+  authenticateToken,
+  requireRole(['admin']),
+  requirePermission('admin_dashboard', 'read'),
+  async (req: any, res: Response): Promise<void> => {
+    res.json({
+      success: true,
+      message: "Welcome to admin dashboard",
+      user: req.user
+    });
+  }
+);
+
+/**
+ * Protected Route Example: User Management
+ * GET /api/auth/users
+ * Uses ABAC for fine-grained access control
+ */
+router.get(
+  "/users",
+  authenticateToken,
+  requireABACPermission('user', 'read', {
+    auditLog: true,
+    policies: [
+      {
+        id: 'admin-user-access',
+        name: 'Admin User Access',
+        description: 'Admins can read all user data',
+        target: {
+          subjects: [{ attribute: 'role', operator: 'eq', value: 'admin' }],
+          actions: [{ attribute: 'type', operator: 'eq', value: 'read' }]
+        },
+        effect: 'permit'
+      }
+    ]
+  }),
+  async (req: any, res: Response): Promise<void> => {
+    res.json({
+      success: true,
+      message: "User list access granted",
+      context: req.abacContext,
+      decision: req.abacDecision
+    });
+  }
+);
 
 export default router;
